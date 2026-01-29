@@ -25,3 +25,6 @@ Thumbs.db
 # Build outputs
 /dist/
 /bin/
+
+# SoulProp cryptographic seals
+soulprop_seal/
