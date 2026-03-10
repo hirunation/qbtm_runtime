@@ -1,6 +1,6 @@
 # QBTM: Quantum Block Type Morphisms
 
-A self-contained runtime for typed quantum circuits over C*-algebra block structures.
+A self-contained runtime for typed quantum circuits over C*-algebra block structures, with integrated protocol certification.
 
 ## Overview
 
@@ -11,30 +11,54 @@ QBTM provides exact quantum circuit execution using rational arithmetic. Circuit
 - Exact arithmetic via rational numbers and Gaussian rationals Q(i)
 - Content-addressed storage with QGID (32-byte hashes)
 - Self-contained .qmb binary format
+- **Protocol Certifier**: 14 quantum protocols with formal security proofs
 
-## Installation
+## Quick Start
 
-```bash
-go install ./cmd/qbtm
-```
-
-Or build from source:
+### Runtime CLI
 
 ```bash
 go build -o qbtm ./cmd/qbtm
+./qbtm info
+./qbtm inspect examples/qbtm_generator_v3.qmb
 ```
 
-## Usage
+### Protocol Certifier CLI
 
 ```bash
-# Show runtime information
-qbtm info
+go build -o certify ./cmd/certify
+./certify list                      # List 14 protocols
+./certify full-analysis BB84        # Full security analysis
+./certify security E91 --error-rate 0.05
+./certify verify Teleportation
+```
 
-# Inspect a .qmb binary
-qbtm inspect circuit.qmb
+### Generate Certified Model
 
-# Execute a .qmb binary
-qbtm run circuit.qmb
+```bash
+go run ./cmd/certify-gen            # Creates models/certify/qbtm_certify.qmb
+```
+
+## Two-Minute Tour
+
+```bash
+# 1. Build both tools
+go build ./...
+
+# 2. See available protocols
+./certify list
+# Output: BB84, E91, B92, Six-State, SARG04, Teleportation, ...
+
+# 3. Analyze BB84 QKD
+./certify security BB84
+# Output: Key rate, threshold (11%), attack resistance
+
+# 4. Verify teleportation correctness
+./certify verify Teleportation
+# Output: Fidelity = 1 (perfect)
+
+# 5. Run the runtime on bootstrap models
+./qbtm inspect examples/qbtm_generator_v3.qmb
 ```
 
 ## Type System
@@ -84,19 +108,71 @@ Store:      serialized value store
 
 ```
 qbtm/
-├── cmd/qbtm/         # CLI tool
-│   └── main.go
-├── runtime/          # Self-contained executor
-│   ├── value.go      # Value types (Int, Rat, Seq, Tag, etc.)
-│   ├── arithmetic.go # Exact rational/Gaussian arithmetic
-│   ├── exec.go       # Circuit interpreter
-│   └── embed.go      # Binary format encoder/decoder
-├── examples/         # Bootstrap model files
-│   ├── qbtm_generator_v1.qmb
-│   ├── qbtm_generator_v2.qmb
-│   └── qbtm_generator_v3.qmb
-└── LICENSE           # AGPL-3.0
+├── cmd/
+│   ├── qbtm/             # Runtime CLI
+│   ├── certify/          # Protocol Certifier CLI
+│   └── certify-gen/      # Model generator
+├── runtime/              # Self-contained executor (zero imports)
+│   ├── value.go          # Value types (Int, Rat, Seq, Tag, etc.)
+│   ├── arithmetic.go     # Exact Q(i) arithmetic, matrices
+│   ├── exec.go           # Circuit interpreter
+│   └── embed.go          # Binary format encoder/decoder
+├── certify/              # Protocol Certification System
+│   ├── protocol/         # 14 quantum protocols
+│   │   ├── qkd/          # BB84, E91, B92, Six-State, SARG04
+│   │   ├── communication/ # Teleportation, Superdense, Swapping
+│   │   ├── multiparty/   # GHZ, W-State, Secret Sharing
+│   │   └── cryptographic/ # Coin Flip, Bit Commitment, OT
+│   ├── attack/           # 21 attack models
+│   ├── analysis/         # Correctness, security, noise, composition
+│   └── certificate/      # Evidence, witnesses, bundles
+├── models/certify/       # Generated artifacts & documentation
+│   ├── qbtm_certify.qmb  # Certified model
+│   ├── README.md         # Certifier quick start
+│   ├── PROTOCOLS.md      # Protocol catalog
+│   └── SPECIFICATION.md  # Technical spec
+├── examples/             # Bootstrap model files
+└── LICENSE               # AGPL-3.0
 ```
+
+## Protocol Certifier
+
+The `certify/` package provides formal security analysis for quantum protocols:
+
+### Supported Protocols (14)
+
+| Category | Protocols |
+|----------|-----------|
+| **QKD** | BB84, E91, B92, Six-State, SARG04 |
+| **Communication** | Teleportation, Superdense Coding, Entanglement Swapping |
+| **Multi-party** | GHZ Distribution, W-State, Secret Sharing |
+| **Cryptographic** | Coin Flip, Bit Commitment, Oblivious Transfer |
+
+### Analysis Capabilities
+
+| Analysis | Description |
+|----------|-------------|
+| **Correctness** | Choi matrix comparison to ideal functionality |
+| **Security** | Key rates, thresholds (e.g., BB84: 11%) |
+| **Attacks** | 21 models (intercept-resend, PNS, coherent, etc.) |
+| **Noise** | Depolarizing, amplitude damping, phase damping |
+| **Composition** | Sequential/parallel with security propagation |
+
+### Example: Full BB84 Analysis
+
+```bash
+./certify full-analysis BB84 --format=json
+```
+
+Output includes:
+- Protocol specification
+- Synthesized circuit (QGID)
+- Correctness certificate
+- Security bounds for individual/collective/coherent attacks
+- Noise tolerance thresholds
+- Applicable attack analysis
+
+See [models/certify/README.md](models/certify/README.md) for complete documentation.
 
 ## Bootstrap Models
 

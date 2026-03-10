@@ -1,15 +1,17 @@
-# Binaries (root level only)
+# Build artifacts
 /qbtm
 /qbtm.exe
+/certify
+!/certify/
+/certify.exe
+/certify-gen
+!/certify-gen/
+/certify-gen.exe
 *.exe
 *.dll
 *.so
 *.dylib
-
-# Test binaries
 *.test
-
-# Output of go coverage
 *.out
 
 # IDE
@@ -17,14 +19,18 @@
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Build outputs
+# Build output
 /dist/
 /bin/
 
-# SoulProp cryptographic seals
+# Cryptographic seals (private)
 soulprop_seal/
+
+# Previous implementations (local archive)
+directory_for_extraction/

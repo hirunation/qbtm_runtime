@@ -1,13 +1,23 @@
 # QBTM Architecture
 
-Technical documentation for the Quantum Block Type Morphisms runtime.
+Technical documentation for the Quantum Block Type Morphisms runtime and protocol certifier.
 
 ## Design Principles
 
 1. **Zero Dependencies**: Only Go standard library
-2. **Exact Arithmetic**: No floating-point approximations
+2. **Exact Arithmetic**: No floating-point approximations (Q(i) = Gaussian rationals)
 3. **Content Addressing**: Values identified by cryptographic hashes (QGID)
 4. **Self-Containment**: .qmb files include all required data
+5. **Security as Artifacts**: Proofs are executable, not paper claims
+
+## System Components
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| **Runtime** | Circuit execution | `runtime/` |
+| **Certify** | Protocol analysis | `certify/` |
+| **CLI** | User interface | `cmd/qbtm/`, `cmd/certify/` |
+| **Models** | Generated artifacts | `models/`, `examples/` |
 
 ## Module Structure
 
@@ -194,3 +204,103 @@ All errors are wrapped with context for debugging.
 - .qmb files are not sandboxed (execute arbitrary circuit logic)
 - Large circuits can exhaust memory (no resource limits)
 - Untrusted .qmb files should be inspected before execution
+
+---
+
+## Protocol Certifier (`certify/`)
+
+The certify package provides formal security analysis for quantum protocols.
+
+### Package Structure
+
+```
+certify/
+├── protocol/              # Protocol Specifications
+│   ├── spec.go            # Core types (Protocol, Party, Resource, Goal)
+│   ├── qkd/               # QKD: BB84, E91, B92, Six-State, SARG04
+│   ├── communication/     # Teleportation, Superdense, Swapping
+│   ├── multiparty/        # GHZ, W-State, Secret Sharing
+│   └── cryptographic/     # Coin Flip, Bit Commitment, OT
+├── attack/                # Attack Library (21 attacks)
+│   ├── individual.go      # Intercept-resend, cloning, USD
+│   ├── collective.go      # Collective measurement, Devetak-Winter
+│   ├── coherent.go        # General coherent, composable
+│   └── implementation.go  # PNS, detector blinding, etc.
+├── analysis/              # Analysis Engine
+│   ├── correctness.go     # Choi matrix verification
+│   ├── security.go        # Key rate computation
+│   ├── entropy.go         # Symbolic entropy h(e)
+│   ├── noise.go           # Noise tolerance
+│   └── composition.go     # Protocol composition
+├── certificate/           # Certificate Generation
+│   ├── evidence.go        # Evidence bundles
+│   ├── witness.go         # Proof witnesses
+│   ├── claim.go           # Security claims
+│   └── bundle.go          # Full analysis bundles
+├── model.go               # Model construction
+├── dispatch.go            # Command dispatch
+└── emit.go                # .qmb emission
+```
+
+### Security Analysis Pipeline
+
+```
+Protocol Spec → Synthesize → Verify Correctness → Compute Security → Generate Certificate
+     │              │               │                    │                    │
+     ▼              ▼               ▼                    ▼                    ▼
+  spec.go       circuit QGID   Choi matrix          Key rate            Evidence bundle
+                               comparison            bounds
+```
+
+### Symbolic Entropy
+
+Security bounds use symbolic entropy with rational bounds:
+
+```go
+type Entropy struct {
+    Symbolic string      // "1 - 2h(e)"
+    Lower    *big.Rat    // Computable lower bound
+    Upper    *big.Rat    // Computable upper bound
+}
+
+// Key rate for BB84: r = 1 - 2h(e)
+// Threshold: e < 11/100 (exactly)
+```
+
+### Attack Interface
+
+All attacks implement:
+
+```go
+type Attack interface {
+    Name() string
+    ChoiMatrix() *runtime.Matrix      // CP map representation
+    InformationGained() *big.Rat      // Exact rational
+    DisturbanceInduced() *big.Rat     // Exact rational
+    ApplicableProtocols() []string
+}
+```
+
+### Certificate Structure
+
+```go
+type Evidence struct {
+    Status    Status    // Verified, Failed, Conditional
+    Claim     *Claim    // What is being claimed
+    Witness   *Witness  // Proof artifact
+}
+
+type Bundle struct {
+    Protocol  string
+    Evidence  []*Evidence   // Multiple claims proven
+}
+```
+
+### Key Formulas (Exact Rationals)
+
+| Protocol | Key Rate | Threshold |
+|----------|----------|-----------|
+| BB84 | r = 1 - 2h(e) | e < 11/100 |
+| Six-State | r = 1 - (5/3)h(3e/2) | e < 1/6 |
+| E91 | Based on CHSH | S > 2 |
+| Coin Flip | Bias ≥ (√2-1)/2 | Kitaev bound |
