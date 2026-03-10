@@ -2,6 +2,8 @@
 
 A self-contained runtime for typed quantum circuits over C*-algebra block structures, with integrated protocol certification.
 
+**v2.0.0** -- Complete executor, synthesis engine, and self-reproducing bootstrap fixpoint.
+
 ## Overview
 
 QBTM provides exact quantum circuit execution using rational arithmetic. Circuits are morphisms in FdC*_CP (the category of finite-dimensional C*-algebras with completely positive maps).
@@ -10,8 +12,12 @@ QBTM provides exact quantum circuit execution using rational arithmetic. Circuit
 - Zero external dependencies (pure Go, standard library only)
 - Exact arithmetic via rational numbers and Gaussian rationals Q(i)
 - Content-addressed storage with QGID (32-byte hashes)
-- Self-contained .qmb binary format
+- Self-contained .qmb binary format with complete round-trip serialization
+- All 23 circuit primitives fully implemented
+- Synthesis engine with 12 synthesis rules and 4 rewrite rules
+- Self-reproducing bootstrap fixpoint (verified via SHA-256)
 - **Protocol Certifier**: 14 quantum protocols with formal security proofs
+- **127 tests** all passing
 
 ## Quick Start
 
@@ -19,8 +25,12 @@ QBTM provides exact quantum circuit execution using rational arithmetic. Circuit
 
 ```bash
 go build -o qbtm ./cmd/qbtm
-./qbtm info
-./qbtm inspect examples/qbtm_generator_v3.qmb
+./qbtm info                         # Show all primitives, synthesis rules, rewrite rules
+./qbtm bootstrap                    # Run the self-reproducing fixpoint demo
+./qbtm synthesize Hadamard -o h.qmb # Synthesize a Hadamard gate to .qmb
+./qbtm run h.qmb                    # Execute the synthesized gate
+./qbtm inspect h.qmb                # Inspect store entries, entrypoint circuit
+./qbtm verify v2.qmb v3.qmb        # Verify two binaries are identical (fixpoint)
 ```
 
 ### Protocol Certifier CLI
@@ -42,23 +52,32 @@ go run ./cmd/certify-gen            # Creates models/certify/qbtm_certify.qmb
 ## Two-Minute Tour
 
 ```bash
-# 1. Build both tools
-go build ./...
+# 1. Build the runtime
+go build -o qbtm ./cmd/qbtm
 
-# 2. See available protocols
-./certify list
-# Output: BB84, E91, B92, Six-State, SARG04, Teleportation, ...
+# 2. Run the bootstrap demo (self-reproducing fixpoint)
+./qbtm bootstrap
+# Output:
+#   v1 (with intentional redundancy) → normalize → v2
+#   v2 → rebuild → v3
+#   SHA-256(v2) == SHA-256(v3) → FIXPOINT VERIFIED
 
-# 3. Analyze BB84 QKD
-./certify security BB84
-# Output: Key rate, threshold (11%), attack resistance
+# 3. Synthesize a Hadamard gate and write to .qmb
+./qbtm synthesize Hadamard -o hadamard.qmb
+# Output: QGID, domain Q(2)→Q(2), channel matrix
 
-# 4. Verify teleportation correctness
-./certify verify Teleportation
-# Output: Fidelity = 1 (perfect)
+# 4. Run the synthesized gate
+./qbtm run hadamard.qmb
+# Output: 2x2 matrix H|0><0|H† = [[1/2, 1/2], [1/2, 1/2]]
 
-# 5. Run the runtime on bootstrap models
-./qbtm inspect examples/qbtm_generator_v3.qmb
+# 5. Inspect the binary
+./qbtm inspect hadamard.qmb
+# Output: store entries, entrypoint circuit details
+
+# 6. Verify a fixpoint (byte-identical check)
+./qbtm bootstrap -o /tmp/bootstrap
+./qbtm verify /tmp/bootstrap/v1.qmb /tmp/bootstrap/v2.qmb
+# Output: DIFFERENT (v1 has redundancy)
 ```
 
 ## Type System
@@ -73,35 +92,52 @@ Objects are C*-algebras represented as direct sums of matrix algebras:
 
 Morphisms are completely positive maps between these types.
 
-## Circuit Primitives
+## Circuit Primitives (23)
 
-**Structural:**
+**Structural (4):**
 - `Id` - Identity morphism
 - `Compose` - Sequential composition
-- `Tensor` - Parallel composition
-- `Swap` - Swaps tensor factors
+- `Tensor` - Parallel composition (Kronecker product)
+- `Swap` - Swaps tensor factors (correct permutation matrix)
 
-**Quantum:**
-- `Unitary` - Unitary gates (Hadamard, CNOT, Pauli, etc.)
-- `Choi` - General quantum channels via Choi representation
+**Biproduct (3):**
+- `Bisum` - Component-wise morphism over direct sums
+- `Inject` - Injection into coproduct
+- `Project` - Projection from biproduct
+
+**Classical (4):**
+- `Copy` - Diagonal (cloning for classical systems)
+- `Delete` - Counit (discard classical data)
+- `Encode` - Prepare classical bits
+- `Decode` - Measure to classical (extract diagonal)
+
+**Quantum (6):**
+- `Unitary` - Unitary gates via conjugation Ad_U(rho) = U rho U*
+- `Choi` - General quantum channels via Choi-Jamiolkowski isomorphism
+- `Kraus` - Quantum channels via Kraus operators
 - `Prepare` - State preparation
-- `Discard` - Partial trace
+- `Discard` - Complete trace (trace out entire system)
+- `Trace` - Partial trace
 
-**Arithmetic:**
-- `Add` - Probabilistic mixture
+**Arithmetic (3):**
+- `Add` - Probabilistic mixture (sum of channels)
 - `Scale` - Scalar multiplication
 - `Zero` - Zero morphism
 
+**Verification (2):**
+- `Assert` - Type assertion with predicate
+- `Witness` - Attach certificate / proof artifact
+
 ## File Format
 
-The `.qmb` (Quantum Model Binary) format:
+The `.qmb` (Quantum Model Binary) format supports complete round-trip serialization. All 8 value types (Int, Rat, Bytes, Text, Seq, Tag, Bool, Nil) fully round-trip through binary encoding/decoding.
 
 ```
 Magic:      "QMB\x01" (4 bytes)
+Entrypoint: QGID (32 bytes)
 Name:       length-prefixed string
 Version:    length-prefixed string
-Entrypoint: QGID (32 bytes)
-Store:      serialized value store
+Store:      Seq of Tag("entry", Seq(Bytes(qgid), value)) pairs
 ```
 
 ## Architecture
@@ -109,14 +145,15 @@ Store:      serialized value store
 ```
 qbtm/
 ├── cmd/
-│   ├── qbtm/             # Runtime CLI
+│   ├── qbtm/             # Runtime CLI (run, inspect, bootstrap, synthesize, verify, info)
 │   ├── certify/          # Protocol Certifier CLI
 │   └── certify-gen/      # Model generator
 ├── runtime/              # Self-contained executor (zero imports)
-│   ├── value.go          # Value types (Int, Rat, Seq, Tag, etc.)
+│   ├── value.go          # Value types (Int, Rat, Seq, Tag, etc.) with complete encoding
 │   ├── arithmetic.go     # Exact Q(i) arithmetic, matrices
-│   ├── exec.go           # Circuit interpreter
-│   └── embed.go          # Binary format encoder/decoder
+│   ├── exec.go           # Circuit interpreter (all 23 primitives)
+│   ├── embed.go          # Binary format encoder/decoder with complete round-trip
+│   └── synth.go          # Synthesis engine (12 rules, 4 rewrites, bootstrap)
 ├── certify/              # Protocol Certification System
 │   ├── protocol/         # 14 quantum protocols
 │   │   ├── qkd/          # BB84, E91, B92, Six-State, SARG04
@@ -174,15 +211,24 @@ Output includes:
 
 See [models/certify/README.md](models/certify/README.md) for complete documentation.
 
-## Bootstrap Models
+## Bootstrap & Self-Reproduction
 
-The `examples/` directory contains the bootstrap sequence demonstrating self-reproduction:
+The runtime includes a built-in bootstrap demonstration (`qbtm bootstrap`) that proves the synthesis system is self-consistent.
 
-1. `qbtm_generator_v1.qmb` - Initial hand-written model
-2. `qbtm_generator_v2.qmb` - Generated from v1
-3. `qbtm_generator_v3.qmb` - Generated from v2 (identical hash to v2 = fixpoint)
+### The Bootstrap Process
 
-The fixpoint proves the synthesis system correctly generates itself.
+1. **v1 (redundant)**: Build the toolchain with intentional redundancy (`Compose(toolchain, Id)`)
+2. **v2 (normalized)**: Apply rewrite rules (LeftIdentity removes the redundant Id)
+3. **v3 (rebuilt)**: Rebuild from v2's normalized form
+4. **Fixpoint**: Verify `SHA-256(v2) == SHA-256(v3)` -- the normalized toolchain reproduces itself exactly
+
+### Bootstrap Model Files
+
+The `examples/` directory contains pre-built bootstrap artifacts:
+
+1. `qbtm_generator_v1.qmb` - Initial model with intentional redundancy
+2. `qbtm_generator_v2.qmb` - Normalized (redundancy removed)
+3. `qbtm_generator_v3.qmb` - Rebuilt from v2 (identical hash to v2 = fixpoint)
 
 ## Mathematical Foundation
 

@@ -135,9 +135,11 @@ func (v Int) Encode() []byte {
 }
 
 // Encode encodes a Rat to bytes.
+// Format: 0x90, sign, numLen, numBytes..., denomLen, denomBytes...
+// Zero rational: 0x90, 0x00, 0x00, 0x00 (sign=0, numLen=0, denomLen=0).
 func (v Rat) Encode() []byte {
 	if v.V == nil || v.V.Sign() == 0 {
-		return []byte{0x90, 0x00} // Zero rational
+		return []byte{0x90, 0x00, 0x00, 0x00} // Zero rational
 	}
 	numBytes := v.V.Num().Bytes()
 	denomBytes := v.V.Denom().Bytes()
